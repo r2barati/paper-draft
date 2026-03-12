@@ -20,13 +20,14 @@ jobs:
       - name: Compile LaTeX document
         uses: xu-cheng/latex-action@v3
         with:
-          root_file: main.tex
+          root_file: paper/main.tex
+          working_directory: .
 
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
           name: paper-pdf
-          path: main.pdf
+          path: paper/main.pdf
           retention-days: 90
 
       - name: Commit PDF to repository
@@ -34,6 +35,6 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add -f main.pdf
+          git add -f paper/main.pdf
           git diff --cached --quiet || git commit -m "Auto-build: update PDF [skip ci]"
           git push
