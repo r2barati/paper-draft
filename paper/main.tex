@@ -220,16 +220,35 @@ This paper makes the following contributions:
 
 The multi-echelon inventory problem has been studied extensively since the
 seminal work of \citet{clark1960optimal}, who derived optimal echelon
-base-stock policies for serial systems under stationary demand. Extensions
-to tree and general networks include the work of
-\citet{graves2000optimizing} and \citet{eruguz2016comprehensive}.
+base-stock policies for serial systems under stationary demand.
+\citet{scarf1958minmax} established the minimax approach to inventory
+under uncertainty, while \citet{iglehart1963optimality} proved the
+optimality of $(s, S)$ policies in infinite-horizon settings---a result
+that underpins the heuristic agents in our benchmark.
+Comprehensive treatments can be found in \citet{zipkin2000foundations}
+and \citet{porteus2002foundations}.
+Extensions to tree and general networks include the work of
+\citet{graves2000optimizing} and \citet{eruguz2016comprehensive}, while
+\citet{dekok2018typology} provide a comprehensive typology and review
+of stochastic multi-echelon inventory models, cataloguing over 200~papers
+across serial, divergent, convergent, and general network structures.
+The surveys of \citet{perera2023sssurvey_continuous, perera2023sssurvey_discrete}
+confirm that $(s, S)$-type policies remain the dominant paradigm in
+stochastic inventory theory.
 Stochastic programming approaches are surveyed in
 \citet{birge2011introduction}, while rolling-horizon DLP methods are
-analysed in \citet{brown2010information}.
+analysed in \citet{brown2010information}. More recently,
+\citet{bertsimas2006robust} established the robust optimization framework
+for inventory theory, and \citet{lu2021review} survey the broader
+landscape of robust operations management under model uncertainty---
+providing context for why our benchmark systematically varies the
+information structure (informed vs.\ blind) across all agents.
 
 \subsection{RL for Inventory Management}
 
-The application of RL to inventory problems has gained significant momentum.
+The application of RL to inventory problems has gained significant momentum,
+building on the foundational connection between inventory control and
+dynamic programming established by \citet{bellman1966dp}.
 \citet{oroojlooyjadid2022deep} applied deep Q-networks to a beer-game-style
 serial chain. \citet{gijsbrechts2022can} compared PPO against base-stock
 policies in lost-sales systems and demonstrated competitive performance.
@@ -237,6 +256,11 @@ OR-Gym~\citep{hubbs2020orgym} provides a suite of Gymnasium environments
 for OR problems including simple inventory settings.
 \citet{devalve2023understanding} analysed the theoretical conditions under
 which RL can achieve near-optimal performance.
+At the intersection of ML and OR, \citet{ban2019bigdata} demonstrated
+that machine learning techniques applied to the newsvendor problem can
+outperform classical maximum-likelihood estimation, particularly with
+rich feature data---motivating our inclusion of data-driven agents
+alongside classical methods.
 
 \subsection{GNNs for Supply Chain}
 
@@ -258,7 +282,12 @@ the newsvendor problem. \citet{hubbs2020orgym} extended this direction
 with OR-Gym, providing Gymnasium environments for multi-echelon inventory
 problems. However, most subsequent studies continue to use bespoke
 environments with different cost structures, demand models, and performance
-metrics, making cross-study comparison infeasible. Our work builds
+metrics, making cross-study comparison infeasible.
+\citet{solyali2016impact} demonstrate that even within classical OR,
+the choice of demand uncertainty model can dramatically alter inventory
+performance rankings---underscoring why a controlled benchmark is
+essential.
+Our work builds
 directly upon OR-Gym to address this gap---extending the environment with
 non-stationary demand and endogenous dynamics, and implementing classical
 OR methods within the same framework to enable cross-paradigm evaluation.
@@ -332,6 +361,12 @@ demand patterns:
         demand spike with $\tau = 15$ (mid-horizon) and multiplier
         $k = 2.0$ (demand doubles).
 \end{enumerate}
+
+\noindent These patterns build on the non-stationary demand modelling
+tradition established by \citet{graves1999nonstationary} and
+\citet{song1993fluctuating}, who showed that inventory policies derived
+under stationarity assumptions can be highly suboptimal when demand
+fluctuates.
 
 \subsection{Operational Modes}
 
@@ -913,11 +948,14 @@ Conversely, classical OR methods dominate in:
   \item \textbf{Stationary demand.} When the demand distribution is known
         and stable, MSSP achieves near-optimal performance ($<6\%$ gap).
         RL agents cannot match this without significantly more training.
+        This is consistent with the broader finding of
+        \citet{lu2021review} that model-based optimization retains its
+        advantage whenever the underlying model is well-specified.
 
   \item \textbf{Simple topologies.} On the serial network, the echelon
         base-stock heuristic (a closed-form solution) often matches or
         outperforms RL, as the problem structure aligns perfectly with
-        Clark--Scarf theory.
+        Clark--Scarf theory~\citep{clark1960optimal}.
 
   \item \textbf{Interpretability.} LP solutions provide dual variables
         (shadow prices) that have economic interpretations. RL policies
