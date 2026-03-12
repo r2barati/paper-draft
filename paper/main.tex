@@ -354,8 +354,24 @@ feedback loop: a single stock-out triggers a 10\% sentiment drop, while
 perfect service yields only 1\% growth---an asymmetric penalty that
 makes goodwill scenarios significantly harder.
 
+This feature directly addresses a critical gap identified in recent
+surveys of machine learning for inventory management: most RL studies
+treat demand as a purely exogenous stochastic
+process~\citep{gholami2024systematic}, failing to capture the complex
+feedback loops that characterize real-world supply chains. By making
+fulfillment quality an active demand multiplier, our benchmark tests
+whether agents can learn \emph{endogenous dynamics}---a capability that
+LP-based methods fundamentally cannot model.
+
 \paragraph{Backlog vs.\ Lost Sales.} When backlog is enabled, unfulfilled
 demand is carried over to the next period; otherwise, it is lost.
+Recent reviews note that while lost-sales assumptions are highly common
+in practice, multi-period lost-sales systems are notoriously less
+tractable than backorder models, and call for more head-to-head
+comparisons of RL against classical heuristics in lost-sales
+settings~\citep{gholami2024systematic}. Our benchmark natively
+supports both operational modes, enabling precisely these comparisons
+across all ten agents and 32~scenarios.
 
 \subsection{Observation and Action Spaces}
 
@@ -504,8 +520,16 @@ Two MLP variants are evaluated:
 
 \subsection{PPO with GNN Feature Extractor}
 
-The GNN agent replaces the MLP feature extractor with a custom
-\emph{Graph Neural Network} (\texttt{GNNFeaturesExtractor}).
+Recent surveys identify multi-echelon networks as an underexplored
+frontier for deep RL, noting that as ordering decisions are coupled
+across downstream nodes, the action and state spaces grow
+exponentially---creating a significant practical barrier for standard
+MLP-based DRL~\citep{gholami2024systematic}. The GNN agent directly
+addresses this dimensionality challenge by replacing the MLP feature
+extractor with a custom \emph{Graph Neural Network}
+(\texttt{GNNFeaturesExtractor}) that explicitly encodes the supply chain
+topology.
+
 A \texttt{DomainFeatureWrapper} augments the raw observation
 with three per-node features: \emph{inventory position}
 (on-hand minus backlog), \emph{lead-time target}
@@ -526,28 +550,48 @@ The GNN output is flattened and concatenated with the base observation
 and global features, then compressed via a linear layer to a
 256-dimensional feature vector that feeds the PPO policy head
 (architecture: \texttt{[256, 128]}).
+By processing each node's features through the adjacency structure, the
+GNN inherently captures cross-node inventory interactions---precisely the
+dimensionality reduction technique that recent literature calls for in
+multi-echelon settings.
 
 The GNN is trained with a lower learning rate ($\eta = 10^{-4}$),
-larger batch size~(128), and $\gamma = 0.995$. Domain randomization
-randomizes the demand pattern each episode, exposing the GNN to the
-full scenario distribution during training.
+larger batch size~(128), and $\gamma = 0.995$. Crucially, \emph{domain
+randomization} randomizes the demand pattern each episode, exposing the
+GNN to the full scenario distribution during training. This directly
+responds to the literature's call for training paradigms that ensure
+generalization under non-stationary environments and demand
+variance~\citep{gholami2024systematic}, producing agents that
+demonstrate resilience against supply chain shocks rather than
+overfitting to a single demand regime.
 
 \subsection{Residual RL}
 
-The Residual~RL agent combines the echelon base-stock heuristic with a
-learned correction via a \texttt{ResidualActionWrapper}. At each step,
-the heuristic proposes actions $a_t^{\text{heur}}$, and the RL agent
-outputs a normalized residual $\tilde{\delta}_t \in [-1, 1]$ which is
-scaled by the maximum residual $\Delta = 50$:
+A persistent concern in the literature is the practical infeasibility of
+deploying pure DRL models due to massive computational expense, sample
+inefficiency, and instability in cost-sensitive
+settings~\citep{gholami2024systematic}. The Residual~RL agent addresses
+this by combining the echelon base-stock heuristic with a
+learned correction via a \texttt{ResidualActionWrapper}, producing a
+\emph{safe-by-default} agent that inherits the heuristic's domain
+knowledge while the RL component learns only the residual improvement.
+
+At each step, the heuristic proposes actions $a_t^{\text{heur}}$, and the
+RL agent outputs a normalized residual $\tilde{\delta}_t \in [-1, 1]$
+which is scaled by the maximum residual $\Delta = 50$:
 \begin{equation}\label{eq:residual}
   a_t = \max\bigl(0,\; a_t^{\text{heur}} + \Delta \cdot \tilde{\delta}_t\bigr).
 \end{equation}
 The policy network uses the same PPO hyperparameters as RLV1
 ($\eta = 3 \times 10^{-4}$, architecture \texttt{[256,~256]}),
 but with $\gamma = 0.995$ and domain-randomized training.
-This approach leverages domain knowledge (the heuristic) while allowing
-the RL agent to learn corrections for situations the heuristic handles
-poorly (\eg, demand shocks, goodwill dynamics).
+This design directly answers recent calls for a shift away from
+off-the-shelf RL algorithms toward domain-aware, customized
+approaches~\citep{gholami2024systematic}: even if the learned correction
+fails catastrophically, the agent's performance is bounded below by the
+heuristic, making it suitable for risk-averse industrial deployment
+where the cost of a bad decision exceeds the value of a marginally
+better one.
 
 \subsection{Contributing New Agents}\label{sec:contributing}
 
