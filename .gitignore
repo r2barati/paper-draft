@@ -1,22 +1,10 @@
-# LaTeX temporary files
-*.aux
-*.bbl
-*.blg
-*.fdb_latexmk
-*.fls
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
 *.log
-*.out
-*.synctex.gz
-*.toc
-*.lof
-*.lot
-*.nav
-*.snm
-*.vrb
-*.run.xml
-*.bcf
-*-blx.bib
-
-# OS files
+*.zip
 .DS_Store
-Thumbs.db
