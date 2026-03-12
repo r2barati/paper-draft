@@ -1,0 +1,139 @@
+
+%% ================================================================
+%%  7.  DISCUSSION
+%% ================================================================
+\section{Discussion}\label{sec:discussion}
+
+Our benchmark reveals a nuanced picture: no single paradigm dominates
+across all settings. Rather, the optimal choice of solution method
+depends critically on the demand regime, network topology, and
+operational constraints. We synthesize the key findings below.
+
+\subsection{Where RL/DL Methods Excel}
+
+Our results identify three conditions under which learning-based
+methods provide significant advantages:
+
+\begin{enumerate}
+  \item \textbf{Endogenous demand dynamics (goodwill).} When service
+        quality feeds back into future demand, RL
+        agents---especially the GNN---learn the goodwill dynamics
+        implicitly from experience, while LP-based agents (which
+        assume exogenous demand) suffer 25--45\% optimality gaps. This
+        is arguably the most practically relevant finding, as real-world
+        demand often exhibits endogenous features such as customer
+        churn, brand loyalty, and word-of-mouth effects.
+
+  \item \textbf{High-volatility non-stationary demand.} Under demand
+        shocks, the GNN and Residual~RL agents degrade by 12--15\%,
+        whereas MSSP and DLP degrade by 18--30\%. The distributional
+        assumptions underlying LP-based methods are violated during
+        the shock period, while RL policies trained with domain
+        randomization have already encountered similar disruptions.
+
+  \item \textbf{Real-time decision-making.} RL inference is
+        100--300$\times$ faster than MSSP solving. For applications
+        requiring sub-second decisions (e.g., e-commerce fulfillment,
+        automated warehousing), RL is the only practical approach
+        among the methods tested.
+\end{enumerate}
+
+\subsection{Where Classical OR Methods Remain Superior}
+
+Conversely, classical OR methods dominate in:
+
+\begin{enumerate}
+  \item \textbf{Stationary demand with known parameters.} When the
+        demand distribution is known and stable, MSSP achieves
+        near-optimal performance ($<6\%$ gap). RL agents cannot match
+        this without substantially more training data or architectural
+        refinement.
+
+  \item \textbf{Simple topologies with matching structural assumptions.}
+        On the serial network, the echelon base-stock heuristic---a
+        closed-form solution that is theoretically optimal under
+        stationarity---often matches or outperforms RL, as the problem
+        structure aligns perfectly with the Clark--Scarf
+        assumptions.
+
+  \item \textbf{Interpretability and auditability requirements.}
+        Classical OR solutions can be explained through their
+        mathematical formulations and optimality conditions.
+        For regulated industries or high-stakes decisions, the
+        interpretability of LP solutions or heuristic rules may be
+        preferred over the black-box nature of neural network policies.
+\end{enumerate}
+
+\subsection{The Value of Hybrid Approaches}
+
+The Residual~RL agent demonstrates that combining domain knowledge
+with learned corrections is a promising middle ground. In
+non-goodwill scenarios, Residual~RL closely matches or slightly
+improves upon the raw heuristic---the learned residual adds marginal
+value where the heuristic is already near-optimal. In goodwill-enabled
+scenarios, however, the residual correction provides meaningful
+improvement (2--8 percentage points), as the RL component learns to
+compensate for the heuristic's inability to model endogenous demand.
+
+This finding suggests a practical recommendation: \emph{start with a
+domain-appropriate heuristic and add an RL residual correction,
+rather than training an RL agent from scratch}. The hybrid approach
+provides a safe default (the heuristic), faster training convergence,
+and interpretable corrections.
+
+\subsection{The Information Structure Effect}
+
+The contrast between informed and blind agents quantifies the
+practical cost of demand uncertainty. For MSSP, the blind variant
+loses 2--5\% profit under stationary demand but 10--15\% under
+non-stationary patterns (trend, shock). This suggests that investment
+in demand forecasting infrastructure has higher ROI under volatile
+demand---a practically relevant insight.
+
+Interestingly, RL agents are inherently ``blind'' (they estimate
+demand from observations) yet remain competitive with or superior to
+blind OR methods. This is because RL implicitly learns demand
+estimation as part of its policy, whereas blind OR methods apply a
+generic rolling-average estimator.
+
+\subsection{Limitations}
+
+We acknowledge several limitations of this benchmark:
+
+\begin{enumerate}
+  \item \textbf{Fixed cost structure.} All scenarios use the same
+        holding costs, backlog penalties, and prices. Results may
+        differ under alternative cost ratios (e.g., high holding
+        cost relative to backlog penalty).
+
+  \item \textbf{Fixed lead times.} Lead times are deterministic and
+        constant. Stochastic or time-varying lead times would
+        introduce additional complexity that could alter the relative
+        performance of methods.
+
+  \item \textbf{Single-product setting.} The current environment
+        handles a single product. Multi-product settings with
+        substitution and capacity sharing represent an important
+        extension.
+
+  \item \textbf{Demand distribution family.} All demand is Poisson.
+        Results may differ under heavy-tailed (e.g., negative binomial)
+        or correlated demand.
+
+  \item \textbf{RL training budget.} The RL agents were trained on a
+        consumer-grade laptop with modest computational resources. More
+        extensive hyperparameter tuning and longer training could
+        potentially close the performance gap with OR methods in
+        stationary settings.
+
+  \item \textbf{Episode length.} The 30-period horizon is relatively
+        short. Longer horizons may differentially affect methods that
+        rely on long-term planning versus reactive control.
+\end{enumerate}
+
+These limitations are deliberate \emph{controlled variables}: they
+define the scope of the current benchmark while leaving clear
+directions for extension. Because the environment is fully
+configurable, each of these dimensions can be systematically varied
+in future studies using the same evaluation protocol and agent
+implementations.

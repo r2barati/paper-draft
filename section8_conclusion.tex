@@ -1,0 +1,113 @@
+
+%% ================================================================
+%%  8.  CONCLUSION AND FUTURE WORK
+%% ================================================================
+\section{Conclusion}\label{sec:conclusion}
+
+This paper presented an open benchmarking framework for inventory
+management that enables fair, reproducible comparison of solution
+methods across four paradigms: heuristic policies, mathematical
+programming, reinforcement learning, and deep learning. Rather than
+creating a new simulation from scratch, we built upon and extended the
+OR-Gym framework~\citep{hubbs2020orgym}---modernizing it to the
+current Gymnasium~API, adding composable non-stationary demand
+patterns and endogenous goodwill dynamics, and implementing classical
+OR methods as first-class agents.
+
+Our evaluation of ten solution methods across 32~controlled scenarios
+yields several actionable insights:
+
+\begin{enumerate}
+  \item \textbf{No single paradigm dominates universally.} Classical
+        OR methods (MSSP, DLP) excel under stationary demand with
+        known parameters ($<6\%$ optimality gap), while GNN-based RL
+        excels under endogenous demand dynamics (25\% improvement over
+        MSSP) and provides 100--300$\times$ faster inference.
+
+  \item \textbf{Endogenous dynamics are a key differentiator.} Methods
+        that assume exogenous demand suffer significant degradation
+        (25--45\% optimality gap) in goodwill-enabled scenarios.
+        Learning-based methods that can implicitly capture
+        demand--service feedback loops offer a genuine advantage.
+
+  \item \textbf{Hybrid approaches are promising.} Residual~RL
+        consistently improves upon its heuristic base, particularly
+        in settings where the heuristic's assumptions are violated,
+        while maintaining safety and interpretability.
+
+  \item \textbf{The speed--quality trade-off is dramatic.} RL agents
+        operate at two orders of magnitude faster than MSSP,
+        achieving 85--95\% of MSSP's profit in non-goodwill settings,
+        making them the only viable option for real-time applications.
+\end{enumerate}
+
+\subsection{Future Work}
+
+The extensibility of the benchmarking framework opens several
+promising research directions:
+
+\paragraph{Environment Extensions.}
+\begin{itemize}
+  \item \textbf{Cost sensitivity analysis.} Systematically varying
+        holding costs, backlog penalties, and prices to identify when
+        the relative ranking of methods changes.
+  \item \textbf{Stochastic lead times.} Introducing random lead-time
+        variability, which creates a more realistic and challenging
+        setting for all methods.
+  \item \textbf{Multi-product settings.} Extending to environments
+        with multiple products sharing capacity and exhibiting
+        demand substitution, using our existing multi-agent
+        extension based on PettingZoo.
+  \item \textbf{Alternative demand distributions.} Testing
+        heavy-tailed distributions (negative binomial, log-normal)
+        and spatially correlated demand patterns.
+\end{itemize}
+
+\paragraph{Agent Extensions.}
+\begin{itemize}
+  \item \textbf{Foundation models.} Pre-trained time-series forecasters
+        (e.g., TimesFM, Chronos) could serve as demand estimation
+        modules feeding into any decision-making agent.
+  \item \textbf{LLM-based agents.} Large language models could be
+        evaluated as inventory decision-makers through prompt-based
+        interaction with the Gymnasium environment.
+  \item \textbf{Multi-agent RL.} Using the PettingZoo multi-agent
+        extension to model decentralized decision-making with
+        competing or cooperating supply chain entities.
+  \item \textbf{Imitation learning.} Using DAgger or behavior
+        cloning from Oracle trajectories to accelerate RL training.
+\end{itemize}
+
+\paragraph{Benchmarking Infrastructure.}
+\begin{itemize}
+  \item \textbf{Community leaderboard.} An online platform where
+        researchers can submit agent implementations and compare
+        results on the standardized scenario matrix.
+  \item \textbf{Expanded scenario library.} Additional scenario
+        configurations contributed by the community, including
+        industry-specific cost structures and demand patterns.
+\end{itemize}
+
+The complete environment, all ten agent implementations, the
+evaluation pipeline, and the data presented in this paper are
+available as open-source software at
+\url{https://github.com/r2barati/phd-paper1-draft}. We invite the
+research community to build upon this framework, extend the scenario
+library, and contribute new solution methods---advancing towards the
+standardized benchmarking infrastructure that inventory management
+research needs.
+
+%% ================================================================
+%%  ACKNOWLEDGEMENTS
+%% ================================================================
+\section*{Acknowledgements}
+
+The authors acknowledge the computational resources provided by
+Toronto Metropolitan University. This work builds upon the open-source
+OR-Gym framework by \citet{hubbs2020orgym}.
+
+%% ================================================================
+%%  REFERENCES
+%% ================================================================
+\bibliographystyle{elsarticle-harv}
+\bibliography{references}

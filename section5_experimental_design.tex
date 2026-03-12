@@ -1,0 +1,102 @@
+
+%% ================================================================
+%%  5.  EXPERIMENTAL DESIGN
+%% ================================================================
+\section{Experimental Design}\label{sec:design}
+
+\subsection{Evaluation Protocol}
+
+We define a rigorous evaluation protocol to ensure fair, reproducible
+comparison across all agents:
+
+\begin{itemize}
+  \item Each of the \textbf{32 scenarios} is evaluated over
+        \textbf{30 independent episodes} with distinct random seeds
+        (seeds 1000--1029), all of which are unseen during RL training.
+  \item All agents---classical OR methods, heuristics, and RL
+        agents---are evaluated on \textbf{identical demand
+        realizations} within each seed, ensuring that performance
+        differences reflect algorithmic capability rather than
+        stochastic variation.
+  \item RL agents are evaluated in \textbf{deterministic mode} (mean
+        of the Gaussian policy, no exploration noise).
+\end{itemize}
+
+\subsection{Performance Metrics}
+
+We report the following metrics for each agent--scenario pair:
+
+\paragraph{Total Episode Profit ($\Pi$).}
+The primary metric. Computed as $\Pi = \sum_{t=0}^{T-1} r_t$ where
+$r_t$ is the per-period net profit (\Cref{eq:reward}) and $T = 30$.
+We report the mean $\bar{\Pi}$ and standard deviation $\sigma_\Pi$
+over 30~episodes.
+
+\paragraph{Fill Rate.}
+The fraction of demand fulfilled:
+\begin{equation}\label{eq:fill_rate}
+  \text{FR} = \frac{\sum_{t} S_t}{\sum_{t} D_t},
+\end{equation}
+where $S_t$ is units sold and $D_t$ is realized demand. Fill rate
+captures customer service quality independent of the cost structure.
+
+\paragraph{Average On-Hand Inventory.}
+$\bar{X} = \frac{1}{T} \sum_{t} \sum_{n} X_t^n$, measuring capital
+tied up in inventory.
+
+\paragraph{Total Unfulfilled Demand.}
+$U_{\text{total}} = \sum_{t} U_t$, measuring cumulative stock-outs.
+
+\paragraph{Wall-Clock Computation Time.}
+Average time per scenario (30 episodes), measured on a MacBook~2019
+(Intel Core~i5, 8~GB~RAM). This enables practitioners to assess the
+speed--quality trade-off for real-time applications.
+
+\subsection{Statistical Testing}
+
+To distinguish genuine performance differences from stochastic noise,
+we employ \textbf{paired $t$-tests} between agent pairs. Since each
+agent is evaluated on the same 30~seeds per scenario, the paired test
+controls for demand variability. We report $p$-values and flag
+differences as significant at $\alpha = 0.05$.
+
+\subsection{Information-Value Metrics}
+
+We compute two classical stochastic programming metrics that quantify
+the economic value of information:
+
+\paragraph{Value of Perfect Information (VPI).}
+\begin{equation}\label{eq:vpi}
+  \text{VPI} = \Pi^{\text{Oracle}} - \Pi^{\text{MSSP (Informed)}},
+\end{equation}
+the profit premium from knowing future demand perfectly. VPI
+represents the maximum amount a decision-maker should pay for perfect
+demand forecasts.
+
+\paragraph{Value of the Stochastic Solution (VSS).}
+\begin{equation}\label{eq:vss}
+  \text{VSS} = \Pi^{\text{MSSP}} - \Pi^{\text{DLP}},
+\end{equation}
+the profit premium from modelling demand uncertainty (stochastic
+program) versus using a deterministic approximation. A high VSS
+indicates that demand uncertainty is economically significant---the
+extra computational cost of MSSP is justified.
+
+\paragraph{Optimality Gap.}
+The relative optimality gap for each agent:
+\begin{equation}\label{eq:gap}
+  \text{Gap}(a) = \frac{\Pi^{\text{Oracle}} - \Pi^{a}}
+                       {\Pi^{\text{Oracle}}} \times 100\%.
+\end{equation}
+This normalizes performance relative to the theoretical upper bound,
+enabling comparison across scenarios with different absolute profit
+levels.
+
+\subsection{Reproducibility}
+
+To support reproducibility, all code, trained models, configuration
+files, and evaluation scripts are released in the companion
+repository. The evaluation pipeline is fully automated: a single
+command runs all 10~agents across all 32~scenarios with the prescribed
+seeds and produces CSV results files, summary statistics, and
+publication-ready figures.

@@ -1,0 +1,594 @@
+
+%% ================================================================
+%%  APPENDIX: Technical Details and Critical Analysis
+%% ================================================================
+\appendix
+
+\section{Environment Specification}\label{app:env}
+
+\subsection{State Space}
+
+The environment state at time~$t$ comprises the inventory
+position vector $\mathbf{X}_t \in \mathbb{R}^{|\mathcal{N}|}$ across all
+$|\mathcal{N}|$ nodes and the pipeline matrix
+$\mathbf{Q}_t \in \mathbb{R}^{|\mathcal{E}| \times L_{\max}}$ tracking
+in-transit shipments. The raw state is augmented by the
+\texttt{DomainFeatureWrapper}, which computes per-node and global features
+as described in \Cref{app:obs_space}.
+
+\subsection{Action Space}
+
+Actions $\mathbf{a}_t \in \mathbb{R}^{|\mathcal{E}_r|}$ specify order
+quantities for each reorder link $e \in \mathcal{E}_r$, bounded by
+$[0, c_e]$ where $c_e$ is the link capacity (3\,100 units for all links in
+the base network). For neural agents, a \texttt{RescaleAction} wrapper maps
+the policy output from $[-1, 1]^{|\mathcal{E}_r|}$ to the physical range.
+
+\subsection{Reward Function}
+
+The per-period reward decomposes as:
+\[
+r_t = \underbrace{\sum_{j \in \mathcal{R}} p_j \min(D_{jt}, X_{jt}^+)}_{\text{sales revenue}}
+      - \underbrace{\sum_{i \in \mathcal{N}} h_i X_{it}^+}_{\text{holding cost}}
+      - \underbrace{\sum_{e \in \mathcal{E}_r} g_e a_{et}}_{\text{procurement cost}}
+      - \underbrace{\sum_{j \in \mathcal{R}} b_j X_{jt}^-}_{\text{backlog penalty}}
+\]
+where $X_{it}^+ = \max(0, X_{it})$ is on-hand inventory,
+$X_{it}^- = \max(0, -X_{it})$ is backlog, $\mathcal{R}$ denotes retail
+nodes, $p_j$ is the unit selling price, $h_i$ the holding cost,
+$g_e$ the unit procurement cost, and $b_j$ the backlog penalty rate.
+
+When goodwill dynamics are enabled, the selling price $p_{jt}$ becomes
+time-varying: $p_{jt} = p_j^{\text{base}} \cdot G_{jt}$, where the
+goodwill multiplier $G_{jt} \in [0.5, 1.5]$ evolves as a function of
+fill rate. This creates an endogenous feedback loop that LP-based
+solvers cannot capture.
+
+%% ================================================================
+\section{Observation Space Design}\label{app:obs_space}
+
+The observation vector provided to all neural agents is produced by
+the \texttt{DomainFeatureWrapper} in its \emph{enhanced, grouped}
+configuration (V2/V3 mode). The total observation dimensionality for the
+base network (9~main nodes, 11~reorder links) is:
+
+\[
+\text{obs\_dim} = \underbrace{11}_{\text{base (pipeline flat)}}
+  + \underbrace{8 \times 9}_{\text{per-node features}}
+  + \underbrace{10}_{\text{global features}} = 93
+\]
+
+\subsection{Per-Node Features (8 per node)}
+
+Each main node $i$ receives the following features, concatenated in grouped
+layout (all nodes' $f_1$, then all nodes' $f_2$, etc.):
+
+\begin{table}[htbp]
+\centering
+\caption{Per-node feature set used by GNN, GNN-IL, DAgger, and TSPPO agents.}
+\label{tab:node_features}
+\small
+\begin{tabular}{clp{7cm}}
+\toprule
+\textbf{\#} & \textbf{Feature} & \textbf{Description \& Normalisation} \\
+\midrule
+1 & \texttt{inv\_pos} & Inventory position (on-hand + in-transit $-$ backlog),
+    normalised by $10 \times$ base demand~$\mu$ \\
+2 & \texttt{lt\_target} & Lead-time demand target: $\mu \cdot (L_i + 1)$,
+    normalised as above \\
+3 & \texttt{gap} & Target $-$ position, capturing the replenishment need \\
+4 & \texttt{on\_hand} & Physical on-hand inventory $X_i^+$, normalised \\
+5 & \texttt{holding\_cost} & Node holding cost $h_i$, normalised by max $h$ \\
+6 & \texttt{capacity} & Maximum unit capacity (static), normalised \\
+7 & \texttt{is\_factory} & Binary: 1 if node is a factory, 0 otherwise \\
+8 & \texttt{is\_retail} & Binary: 1 if node is a retail node, 0 otherwise \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Design rationale.}
+The \texttt{gap} feature encodes the \emph{replenishment urgency} and is the
+single most informative signal for ordering decisions. The structural
+indicators (\texttt{is\_factory}, \texttt{is\_retail}) allow the GNN to
+distinguish node roles during message passing. We note that
+\texttt{inv\_pos} already incorporates pipeline information (in-transit
+orders), which explains why our ablation study (\Cref{sec:results})
+found that explicitly adding separate pipeline features provided
+no improvement.
+
+\subsection{Global Features (10)}
+
+Global features capture demand dynamics and temporal context. They are
+appended once (not per-node) to the observation vector:
+
+\begin{table}[htbp]
+\centering
+\caption{Global (shared) feature set.}
+\label{tab:global_features}
+\small
+\begin{tabular}{cll}
+\toprule
+\textbf{\#} & \textbf{Feature} & \textbf{Description} \\
+\midrule
+1 & \texttt{demand\_vel} & Recent demand velocity: mean of last 3 periods \\
+2 & \texttt{norm\_time} & Normalised timestep $t/T \in [0,1]$ \\
+3 & \texttt{sin\_time} & $\sin(2\pi t / T)$ for periodic encoding \\
+4 & \texttt{cos\_time} & $\cos(2\pi t / T)$ for periodic encoding \\
+5--9 & \texttt{demand\_hist} & Past 5 demand realisations (zero-padded early) \\
+10 & \texttt{goodwill} & Current goodwill multiplier (1.0 if disabled) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Critical observation.}
+None of these features provide \emph{future} demand information. The
+demand history and velocity give backward-looking signals, while the
+sinusoidal time encoding allows the model to learn periodic patterns
+but does not reveal the upcoming demand value. This is the
+\emph{fundamental information asymmetry} between neural agents and
+the Oracle/MSSP, and explains the persistent $\sim$5--15\% performance
+gap on non-goodwill scenarios.
+
+
+%% ================================================================
+\section{Agent Implementation Details}\label{app:agents}
+
+%% --- A.1 Oracle ---
+\subsection{Clairvoyant Rolling-Horizon Oracle}
+
+\paragraph{Formulation.}
+At each timestep~$t$, the Oracle solves a linear programme over the
+remaining horizon $[t, T]$ with \emph{perfect} knowledge of future demand
+$D_{j,t:T}$. The LP minimises total cost (equivalently, maximises profit)
+subject to flow conservation, capacity, and non-negativity constraints.
+The solver (PuLP~CBC) returns optimal reorder quantities for all links
+at all remaining periods; only the $t$-th action is executed before
+re-solving at $t{+}1$.
+
+\paragraph{Strengths.} Provides the theoretically optimal policy under
+perfect information; serves as an unattainable upper bound for any
+reactive policy.
+
+\paragraph{Limitations.} (i)~Requires perfect future demand knowledge,
+which is unavailable in practice. (ii)~Solves $T$ separate LPs per
+episode, each with $O(|\mathcal{E}| \cdot (T-t))$ variables, making it
+computationally expensive ($\sim$4\,s per 30-period episode). (iii)~Cannot
+model endogenous dynamics (goodwill) because the LP assumes exogenous demand.
+
+%% --- A.2 MSSP ---
+\subsection{Multi-Stage Stochastic Programme (MSSP)}
+
+\paragraph{Formulation.}
+MSSP samples $N{=}10$ demand scenarios from the known demand distribution
+and solves a stochastic LP that hedges across all scenarios simultaneously.
+The first-stage decision is executed, and the process repeats at $t{+}1$
+with updated state.
+
+\paragraph{Strengths.} Near-Oracle performance (95\% on average) without
+requiring perfect foresight; the scenario tree naturally handles demand
+uncertainty. Well-suited for batch planning where computation time is
+not a constraint.
+
+\paragraph{Limitations.} (i)~Requires knowledge of the demand
+\emph{distribution} (type, parameters), which may be uncertain.
+(ii)~Computational cost scales with $N \times T$ LP variables
+($\sim$2\,s per episode). (iii)~Like the Oracle, cannot model
+endogenous dynamics. (iv)~On goodwill scenarios, MSSP's
+exogenous-demand assumption causes it to under-perform
+adaptive neural agents by 10--30\%.
+
+%% --- A.3 Heuristic ---
+\subsection{Echelon Base-Stock Heuristic}
+
+\paragraph{Formulation.}
+Each node independently applies an order-up-to rule:
+$a_{it} = \max\!\bigl(0,\; \mu \cdot (L_i + 1) - \text{inv\_pos}_i\bigr)$,
+where $\mu$ is the estimated base demand rate and $L_i$ is the cumulative
+upstream lead time.
+
+\paragraph{Strengths.} Zero parameters, sub-millisecond inference,
+analytically transparent, no training required. Performs surprisingly
+well on stationary demand ($\sim$93\% of Oracle) because the
+order-up-to level is near-optimal when demand is constant.
+
+\paragraph{Limitations.} (i)~Cannot adapt to non-stationary demand (trend,
+seasonal, shock) because $\mu$ is fixed. (ii)~Ignores network-level
+coordination: each node orders independently without considering
+downstream states. (iii)~No goodwill management capability.
+
+%% --- A.4 Residual RL ---
+\subsection{Residual Reinforcement Learning}
+
+\paragraph{Architecture.}
+A 3-layer MLP ($200\text{K}$ parameters) outputs additive corrections
+$\delta_t$ to the heuristic base policy:
+$a_t = a_t^{\text{heuristic}} + \alpha \cdot \delta_t$, where
+$\alpha \in [0, 0.3]$ is a proportional residual bound that
+prevents catastrophic deviation from the heuristic.
+
+\paragraph{Training.}
+PPO with the same hyperparameters as GNN~V3, but the base policy
+provides a strong initial performance floor. Training converges
+faster ($\sim$30\,min) because the agent only needs to learn
+small corrections.
+
+\paragraph{Strengths.} (i)~Fastest inference among neural agents
+($\sim$5\,ms) due to the small MLP. (ii)~Inherits the heuristic's
+robustness as a floor. (iii)~Achieves $\sim$92\% of Oracle on
+stationary demand.
+
+\paragraph{Limitations.} (i)~\emph{Not graph-aware}: the MLP processes
+the observation as a flat vector, losing structural information.
+(ii)~The residual bound $\alpha$ limits the agent's ability to deviate
+from the heuristic, which is harmful when the heuristic is itself
+suboptimal (e.g., seasonal demand). (iii)~Performance on
+non-stationary scenarios is limited by the heuristic base.
+
+%% --- A.5 GNN V3 ---
+\subsection{GNN V3 (MPNN with Attention)}
+
+\paragraph{Architecture.}
+The policy network comprises a \emph{Message-Passing Neural Network}~(MPNN)
+feature extractor followed by a 2-layer MLP actor-critic:
+
+\begin{enumerate}
+  \item \textbf{Node embedding:} each node's 8 features are batch-normalised
+        and projected to $d{=}64$ dimensions.
+  \item \textbf{Message passing} ($L{=}3$ layers): for each directed edge
+        $(u \to v)$, a message MLP computes
+        $m_{u \to v} = \text{MLP}(h_u \| h_v \| e_{uv})$, where
+        $e_{uv} \in \mathbb{R}^3$ encodes normalised lead time, procurement
+        cost, and goodwill weight. Messages are aggregated via
+        \emph{attention-weighted sum}, and node states are updated via a GRU.
+  \item \textbf{Readout:} all node embeddings are flattened and
+        concatenated with global features and the base observation, yielding
+        a 256-dimensional feature vector.
+  \item \textbf{Actor-critic:} two separate MLPs (256$\to$128$\to$output)
+        produce the policy mean and value estimate.
+\end{enumerate}
+
+\paragraph{Training hyperparameters.}
+
+\begin{table}[htbp]
+\centering
+\caption{PPO hyperparameters for all RL-trained GNN agents.}
+\label{tab:ppo_hparams}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Algorithm & PPO (clip) \\
+Learning rate & $3 \times 10^{-4}$ \\
+Rollout length & 2\,048 steps \\
+Mini-batch size & 512 \\
+PPO epochs & 10 \\
+Discount $\gamma$ & 0.995 \\
+GAE $\lambda$ & 0.95 \\
+Clip range & 0.2 \\
+Entropy coefficient & 0.005 \\
+Value function coefficient & 0.5 \\
+Max gradient norm & 0.5 \\
+Target KL & 0.03 \\
+Observation normalisation & VecNormalize (clip=10) \\
+Reward normalisation & VecNormalize \\
+Domain randomisation & $\mu \sim \mathcal{U}[10, 30]$, type~random \\
+Total timesteps & 200\,000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Critical analysis.}
+\emph{Strengths:} (i)~Respects graph topology via directed message passing,
+enabling the policy to reason about upstream supply availability and
+downstream demand propagation. (ii)~Attention-weighted aggregation
+learns edge importance dynamically (e.g., prioritising the primary
+supplier over alternatives). (iii)~Domain randomisation during training
+produces a single generalist model that handles all demand types.
+
+\emph{Weaknesses:} (i)~At 85\% of Oracle, GNN~V3 under-performs both
+MSSP (95\%) and the heuristic (87\%) on several scenarios---a
+counterintuitive result suggesting that 200K training steps may
+be insufficient for a 603K-parameter model. (ii)~Message passing
+is \emph{spatial only}: information propagates along graph edges but
+the architecture has no explicit mechanism for temporal reasoning
+(e.g., detecting seasonality). (iii)~High variance during training:
+evaluation rewards oscillate between $+$300 and $+$700 across
+checkpoints, making model selection critical.
+
+%% --- A.6 GNN-IL ---
+\subsection{GNN-IL (Behavioural Cloning + PPO Fine-tuning)}
+
+\paragraph{Training pipeline.}
+GNN-IL uses a three-phase pipeline with the same GNN~V3 architecture:
+
+\begin{enumerate}
+  \item \textbf{Demo collection} (5~min): the Clairvoyant Oracle is executed
+        across 16~scenarios $\times$ 10~seeds, recording 4\,800 observation-action
+        pairs. Oracle actions (in $[0, 3100]$) are rescaled to $[-1, 1]$
+        to match the policy's output space.
+  \item \textbf{Behavioural cloning} (4~min): the policy's actor network is
+        trained via supervised MSE loss on the collected demonstrations.
+        50~epochs, batch~size~256, learning rate~$10^{-3}$. A VecNormalize
+        wrapper is warmed up with the demonstration observations.
+  \item \textbf{PPO fine-tuning} (6~min): the BC-pretrained weights are loaded
+        into a PPO agent with conservative hyperparameters (LR~$10^{-5}$,
+        clip~0.15, target~KL~0.02) to prevent catastrophic forgetting of the
+        BC-learned policy.
+\end{enumerate}
+
+\paragraph{Critical analysis.}
+\emph{Strengths:} (i)~Fastest training of any neural agent ($\sim$15~min
+total). (ii)~Consistent 88.9\% of Oracle without the high variance of pure
+RL. (iii)~The BC warm-start provides a strong policy floor from the very
+first PPO timestep.
+
+\emph{Weaknesses:} (i)~\emph{Distribution shift}: the BC-trained policy was
+optimised on states the \emph{Oracle} visits, but at inference time it visits
+\emph{different} states, creating compounding errors. This manifests as a
+$\sim$6\% gap between BC-only performance (+\$560) and the theoretical
+potential. (ii)~fine-tuning with PPO actually \emph{degraded} performance
+from +\$829 at 5K steps to +\$670 at 200K, indicating that the PPO
+exploration corrupted the BC policy. (iii)~The agent's quality is bounded
+by the Oracle's demonstrations---it cannot discover strategies the Oracle
+never used (e.g., goodwill management).
+
+%% --- A.7 DAgger Specialist ---
+\subsection{Specialist DAgger (Iterative Imitation Learning)}
+
+\paragraph{Algorithm.}
+DAgger~\citep{ross2011reduction} addresses BC's distribution shift by
+iteratively collecting demonstrations at states the \emph{learned policy}
+visits:
+
+\begin{enumerate}
+  \item Collect initial Oracle demonstrations (seeds~0--4, 4~scenarios).
+  \item Repeat for $R{=}8$ rounds:
+  \begin{enumerate}[label=\alph*.]
+    \item Train policy via MSE loss on the aggregated dataset (50~epochs).
+    \item Evaluate on held-out seeds using the corresponding demand type.
+    \item Roll out the current policy; at each state, query the Oracle
+          for its action. Add $(\text{state, oracle\_action})$ to dataset.
+    \item The mixing parameter $\beta$ linearly decays from 1.0 to 0.0
+          across rounds, transitioning from Oracle-guided to fully
+          policy-driven rollouts.
+  \end{enumerate}
+  \item Save the checkpoint with the highest evaluation profit.
+\end{enumerate}
+
+We train \emph{four specialist models}, one per demand type (stationary,
+trend, seasonal, shock), each seeing only its demand type's scenarios.
+
+\paragraph{Hyperparameters.}
+
+\begin{table}[htbp]
+\centering
+\caption{DAgger-Specialist training configuration.}
+\label{tab:dagger_hparams}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+DAgger rounds & 8 \\
+Epochs per round & 50 \\
+Learning rate & $10^{-3}$ (Adam) \\
+Batch size & 256 \\
+Loss function & MSE \\
+Initial demo seeds & 0--4 (5 seeds $\times$ 4 scenarios = 600 pairs) \\
+Rollout seeds per round & 5 new seeds \\
+$\beta$ schedule & Linear $1.0 \to 0.0$ \\
+Scenarios per specialist & 4 ($\pm$ goodwill $\times$ $\pm$ backlog) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Critical analysis.}
+\emph{Strengths:} (i)~Achieves the highest performance of any neural agent
+(94.6\% of Oracle), matching MSSP. (ii)~The iterative data aggregation
+directly solves BC's distribution shift: by round~8, the training set
+includes states from both the Oracle's and the model's own trajectories.
+(iii)~Each specialist trains in $\sim$10~minutes, making rapid iteration
+feasible.
+
+\emph{Weaknesses:} (i)~Requires \textbf{four separate models}, one per
+demand type, plus a routing mechanism to select the appropriate specialist
+at deployment time. This assumes the demand type is known \emph{a priori}.
+(ii)~A generalist DAgger (single model trained on all demand types) collapses
+to 75.7\% of Oracle, indicating that the model cannot simultaneously learn
+optimal policies for conflicting demand patterns. (iii)~Training instability:
+evaluation scores oscillate significantly across rounds (e.g., +\$805 at
+round~8 but +\$365 at round~2 for stationary), suggesting sensitivity to
+the random scenario subsets used in each rollout. (iv)~The Oracle must be
+callable at \emph{training time}, which requires the demand distribution
+to be known for scenario generation.
+
+%% --- A.8 TSPPO ---
+\subsection{TSPPO (Transformer-Sequential PPO)}
+
+\paragraph{Architecture.}
+TSPPO replaces the GNN's message-passing layers with a Transformer encoder:
+
+\begin{enumerate}
+  \item \textbf{Tokenisation:} each of the 9~main nodes becomes a
+        ``token'' with $d_{\text{token}} = 18$ features (8~per-node + 10~global
+        broadcast).
+  \item \textbf{Input projection:} $\text{Linear}(18 \to 64) \to
+        \text{LayerNorm} \to \text{ReLU}$.
+  \item \textbf{Positional encoding:} learned per-node positional
+        embeddings ($\mathbf{P} \in \mathbb{R}^{9 \times 64}$) plus
+        learned node-type embeddings (factory / distributor / retailer).
+  \item \textbf{Transformer encoder:} 3~layers, 4~attention heads,
+        feed-forward dimension~256, GELU activation, dropout~0.1.
+  \item \textbf{Readout:} flatten all tokens + base observation $\to$
+        FC$(576 + 11, 256) \to$ FC$(256, 256)$.
+  \item \textbf{Actor-critic:} same as GNN~V3 (256$\to$128$\to$output).
+\end{enumerate}
+
+\paragraph{Critical analysis.}
+\emph{Strengths:} (i)~Self-attention enables every node to directly attend to
+every other node, potentially capturing long-range dependencies that require
+multiple message-passing rounds in a GNN. (ii)~Node-type embeddings provide
+structural awareness without explicit graph edges. (iii)~The architecture is
+topology-agnostic---it can be applied to different supply chain structures
+without redefining the edge set.
+
+\emph{Weaknesses:} (i)~\textbf{TSPPO matched but did not exceed GNN~V3}
+(82\% vs 85\% of Oracle), failing to demonstrate the temporal advantage
+hypothesised in the literature. We attribute this to the observation
+design: with only 5~historical demand values and sinusoidal time encoding,
+there is insufficient temporal signal for the Transformer's pattern-matching
+to outperform the GNN's structural reasoning. (ii)~The $O(n^2)$
+self-attention cost makes TSPPO $\sim$70\% slower per episode
+($\sim$25~ms vs $\sim$15~ms) despite similar parameter count.
+(iii)~The Transformer's lack of explicit edge features means it cannot
+directly incorporate lead times, procurement costs, or goodwill weights
+as the GNN does via its edge MLPs. (iv)~Training convergence was notably
+slower: TSPPO required $\sim$65\,000 steps to reach positive profit,
+compared to $\sim$20\,000 for GNN~V3.
+
+\paragraph{Why Transformers did not help.}
+We hypothesise three contributing factors:
+\begin{enumerate}
+  \item \emph{Graph structure matters more than attention.} In supply chains
+        with fixed topology, the inductive bias of message passing along
+        edges is more valuable than global attention. The GNN ``knows''
+        that a factory only directly supplies its downstream distributors;
+        the Transformer must learn this from data.
+  \item \emph{Temporal resolution is too coarse.} With 30-period episodes
+        and only 5 demand history features, the sequence length is
+        insufficient for Transformers to learn meaningful temporal patterns.
+        Longer horizons or richer temporal encoding (e.g., full demand
+        history as a separate temporal sequence) might benefit the
+        Transformer.
+  \item \emph{The bottleneck is information, not capacity.} As our
+        training paradigm ablation shows (\Cref{tab:paradigm_ablation}),
+        the binding constraint is the training signal (RL vs.\ IL), not
+        the architecture. A~Transformer trained with DAgger would likely
+        match the GNN DAgger's 94.6\%.
+\end{enumerate}
+
+
+%% ================================================================
+\section{Demand Scenario Specifications}\label{app:demand}
+
+All demand scenarios share the base parameters $\mu = 20$,
+$\sigma = 5$ with additive Gaussian noise clipped to $[0, \infty)$.
+The four demand types compose as follows:
+
+\begin{table}[htbp]
+\centering
+\caption{Demand scenario specifications. All scenarios support
+goodwill~$\in \{\text{on}, \text{off}\}$ and backlog~$\in \{\text{on},
+\text{off}\}$ as orthogonal configuration axes.}
+\label{tab:demand_specs}
+\small
+\begin{tabular}{lp{8.5cm}}
+\toprule
+\textbf{Type} & \textbf{Generative Process} \\
+\midrule
+Stationary & $D_t = \mu + \varepsilon_t$ \\
+Trend      & $D_t = \mu + \beta t + \varepsilon_t$, \quad $\beta > 0$ (linear growth) \\
+Seasonal   & $D_t = \mu + A \sin(2\pi t / P) + \varepsilon_t$, \quad amplitude~$A$, period~$P$ \\
+Shock      & $D_t = \mu + S \cdot \mathbb{1}_{[t_s, t_s+\Delta]}(t) + \varepsilon_t$,
+             \quad spike magnitude~$S$ at time~$t_s$ for duration~$\Delta$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+%% ================================================================
+\section{Training Stability Analysis}\label{app:stability}
+
+A notable finding of our study is the high variance in training across
+all RL-based agents. \Cref{tab:stability} quantifies this by reporting
+the coefficient of variation (CV) of evaluation reward across the last
+50~checkpoints (100K--200K steps) for each agent.
+
+\begin{table}[htbp]
+\centering
+\caption{Training stability: coefficient of variation (CV) of evaluation
+reward over checkpoints 100K--200K. Lower is more stable.}
+\label{tab:stability}
+\small
+\begin{tabular}{lr}
+\toprule
+\textbf{Agent}         & \textbf{CV (\%)} \\
+\midrule
+GNN V3 (PPO)           & 18.3  \\
+TSPPO (PPO)            & 22.1  \\
+GNN-IL (BC+PPO)        & 12.7  \\
+DAgger-Specialist      & 25.4  \\
+DAgger-Generalist      & 148.2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The DAgger-Generalist's extreme CV~(148\%) reflects its catastrophic failure
+mode on certain demand types (e.g., $-$\$85 at round~6, followed by
+$+$\$787 at round~8). This motivates the specialist variant, which
+eliminates cross-scenario interference. GNN-IL achieves the lowest CV
+among RL-trained agents (12.7\%) because the BC warm-start anchors the
+policy near a stable region of parameter space.
+
+
+%% ================================================================
+\section{Ablation Studies}\label{app:ablation}
+
+\subsection{GNN Architecture Ablation (V1--V3)}
+
+We evaluated three GNN architectures to identify the best feature extractor:
+
+\begin{table}[htbp]
+\centering
+\caption{GNN architecture evolution. All trained with identical PPO
+hyperparameters for 200K timesteps.}
+\label{tab:gnn_versions}
+\small
+\begin{tabular}{llrr}
+\toprule
+\textbf{Version} & \textbf{Key Change} & \textbf{Params} & \textbf{\% Oracle} \\
+\midrule
+V1 (GCN) & Graph convolution, no edge features & 590K & 80.0 \\
+V2 (MPNN) & Directed edges, edge MLPs, GRU update & 603K & 79.6 \\
+V3 (MPNN+) & +BatchNorm, +grouped features & 603K & 85.1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+V2 paradoxically under-performed V1 due to a feature layout bug
+(interleaved vs.\ grouped) that was corrected in V3. The BatchNorm
+addition in V3 stabilised early training and improved final
+performance by 5 percentage points.
+
+\subsection{Feature and Training Ablation (V4)}
+
+We conducted a controlled ablation with V3 as the base, testing
+four modifications independently (200K steps each):
+
+\begin{table}[htbp]
+\centering
+\caption{V4 ablation study results. Run~A is the V3 baseline.}
+\label{tab:v4_ablation}
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Run} & \textbf{Modification} & \textbf{Best Eval} \\
+\midrule
+A & V3 baseline (control) & $+$\$680 \\
+B & + Pipeline features (in-transit, backlog) & $+$\$680 \\
+C & + 4 parallel environments & $+$\$620 \\
+D & + Cosine LR decay & $+$\$680 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Finding:} None of the modifications improved upon V3.
+Pipeline features (Run~B) provided no gain because \texttt{inv\_pos}
+already encodes pipeline information implicitly. Parallel environments
+(Run~C) hurt performance, likely because the additional gradient noise
+from independent environments overwhelmed the learning signal. Cosine LR
+decay (Run~D) was neutral. These null results motivated the shift from
+architectural improvements to training paradigm changes
+(Imitation~Learning, DAgger).
+

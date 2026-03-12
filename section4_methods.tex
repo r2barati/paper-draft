@@ -1,0 +1,226 @@
+
+%% ================================================================
+%%  4.  SOLUTION METHODS
+%% ================================================================
+\section{Solution Methods}\label{sec:methods}
+
+A distinguishing feature of this benchmark is that it evaluates
+\textbf{ten solution methods} spanning four distinct paradigms
+(\Cref{fig:taxonomy}). All agents share the same Gymnasium interface,
+receive identical observations, and are evaluated with identical
+metrics---ensuring a fair, controlled comparison. We describe each
+method below.
+
+% -----------------------------------------------------------------
+\subsection{Oracle (LP Relaxation Upper Bound)}
+
+The \emph{Oracle} solves the full-horizon LP with perfect knowledge of
+the realized demand trace. It serves as a theoretical upper bound
+(not achievable in practice) and is used to compute the Value of
+Perfect Information~(VPI). The Oracle uses continuous LP relaxation
+(\texttt{is\_continuous=True}) for consistency with DLP and MSSP.
+
+For goodwill-enabled scenarios, the Oracle employs an iterative
+procedure: it first solves assuming full demand, then simulates
+forward to compute realized goodwill, extracts the updated demand
+trace, and re-solves. This process converges to the
+\emph{optimistic endogenous oracle} bound---a tighter upper bound than
+na\"ive perfect-foresight in the presence of endogenous demand dynamics.
+
+% -----------------------------------------------------------------
+\subsection{Multi-Stage Stochastic Programming (MSSP)}
+
+The MSSP agent constructs a scenario tree of depth~3 at each decision
+epoch, sampling demand realizations from the estimated distribution.
+It solves the resulting stochastic LP and implements only the
+first-stage decision (rolling-horizon receding-horizon control).
+
+We evaluate two information variants:
+\begin{itemize}
+  \item \textbf{Informed MSSP:} Knows the true demand distribution
+        parameters ($\mu_t$, pattern type, goodwill state).
+  \item \textbf{Blind MSSP:} Estimates demand parameters from the
+        observed demand history using a rolling average, modelling the
+        realistic case where the demand process is unknown.
+\end{itemize}
+
+MSSP provides the highest-quality feasible solutions in stationary
+settings but incurs significant computational cost: each decision
+requires solving a stochastic LP with $\mathcal{O}(S^D)$ scenarios,
+where $S$ is the number of samples and $D$ is the tree depth.
+
+% -----------------------------------------------------------------
+\subsection{Deterministic Linear Programming (DLP)}
+
+DLP replaces each future demand with its conditional expectation
+$\hat{D}_t = \hat{\mu}_t$ and solves the resulting deterministic LP
+over a 10-period rolling horizon. Like MSSP, both informed and blind
+variants are evaluated. DLP is significantly faster than MSSP because
+it solves a single LP instead of a scenario tree---typically
+$\sim$15$\times$ faster---while achieving competitive performance in
+many scenarios.
+
+The rolling-horizon approach re-solves the LP at each decision epoch
+using updated state information, providing implicit feedback correction
+even though the underlying model is deterministic.
+
+% -----------------------------------------------------------------
+\subsection{Echelon Base-Stock Heuristic}
+
+This heuristic implements the Clark--Scarf echelon stock
+policy~\citep{clark1960optimal}. For each node, a critical ratio
+$\text{CR} = b / (b + h)$ is computed, where $b$ is the backlog cost
+(derived from the downstream price differential for upstream nodes)
+and $h$ is the holding cost. The order-up-to level is set to the
+$\text{CR}$-quantile of the newsvendor distribution, accounting for
+cumulative lead times along the echelon.
+
+We evaluate both informed (true $\mu$ known) and blind
+(rolling-average estimation) variants, yielding four heuristic agents:
+\begin{itemize}
+  \item \textbf{Heuristic (Informed, Backlog):} Knows true $\mu$,
+        backlog-mode cost structure.
+  \item \textbf{Heuristic (Informed, Lost Sales):} Knows true $\mu$,
+        lost-sales-mode cost structure.
+  \item \textbf{Heuristic (Blind, Backlog):} Estimates $\mu$ from
+        demand history.
+  \item \textbf{Heuristic (Blind, Lost Sales):} Estimates $\mu$ from
+        demand history.
+\end{itemize}
+
+The echelon base-stock policy is theoretically optimal for serial
+networks under stationary demand~\citep{clark1960optimal}, making it
+a strong baseline for the serial topology.
+
+% -----------------------------------------------------------------
+\subsection{Dummy Agent (Zero-Order Baseline)}
+
+The Dummy agent places zero orders at all times, providing a
+worst-case reference. Its performance quantifies the ``cost of
+inaction'' and serves as a sanity check: any reasonable method should
+substantially outperform the Dummy agent.
+
+% -----------------------------------------------------------------
+\subsection{PPO Baseline (MLP Architecture)}\label{sec:ppo_mlp}
+
+We train a Proximal Policy Optimization~(PPO)~\citep{schulman2017proximal}
+agent using Stable-Baselines3~\citep{raffin2021stable}. The policy
+and value networks are multi-layer perceptrons~(MLPs) with two hidden
+layers of 256~units each. The observation is the raw environment state
+vector, and actions are continuous (Gaussian policy).
+
+The wrapper pipeline is:
+\texttt{env $\to$ RescaleAction([-1,1] $\to$ [0, high]) $\to$
+DummyVecEnv $\to$ VecNormalize(obs, reward, clip=10)}. Key PPO
+hyperparameters: learning rate $\eta = 3 \times 10^{-4}$,
+$n_{\text{steps}} = 2048$, batch size~64, $n_{\text{epochs}} = 10$,
+$\gamma = 0.99$, $\lambda_{\text{GAE}} = 0.95$, clip range~$0.2$,
+entropy coefficient~$0.01$.
+
+All RL agents were trained on a consumer-grade laptop (MacBook~2019,
+Intel Core~i5, 8~GB~RAM) without GPU acceleration, demonstrating the
+accessibility of the learning-based approach.
+
+Two MLP variants are evaluated:
+\begin{itemize}
+  \item \textbf{RLV1:} A baseline PPO agent trained for
+        200K~timesteps with default hyperparameters.
+  \item \textbf{RLV4:} An improved PPO agent with tuned
+        hyperparameters, extended training (500K+ timesteps), and
+        a refined reward normalization scheme.
+\end{itemize}
+
+% -----------------------------------------------------------------
+\subsection{PPO with GNN Feature Extractor}\label{sec:ppo_gnn}
+
+The GNN agent replaces the MLP feature extractor with a custom
+\emph{Graph Neural Network} (\texttt{GNNFeaturesExtractor}) that
+respects the supply chain topology. A
+\texttt{DomainFeatureWrapper} augments the raw observation with
+three per-node features:
+\begin{enumerate}
+  \item \emph{Inventory position} (on-hand minus backlog),
+  \item \emph{Lead-time target} (echelon-aware order-up-to level),
+  \item \emph{Gap} between inventory position and target.
+\end{enumerate}
+Two global features (normalized time step and goodwill sentiment)
+are appended.
+
+The supply chain is encoded as a symmetric adjacency matrix $A$ with
+self-loops, normalized via $\hat{A} = D^{-1/2} A D^{-1/2}$
+(Kipf \& Welling normalization~\citep{kipf2017semi}). The GNN applies
+two graph convolutional layers:
+\begin{equation}\label{eq:gnn}
+  H^{(\ell+1)} = \text{ReLU}\bigl(\hat{A} \, H^{(\ell)} \, W^{(\ell)}\bigr),
+\end{equation}
+with hidden dimension $d_h = 32$ and 3-dimensional input node features
+$H^{(0)} = [\text{inv\_pos},\; \text{lt\_target},\; \text{gap}]$.
+The GNN output is flattened and concatenated with the base observation
+and global features, then compressed via a linear layer to a
+256-dimensional feature vector that feeds the PPO policy head
+(architecture: \texttt{[256, 128]}).
+
+The GNN is trained with a lower learning rate ($\eta = 10^{-4}$),
+larger batch size~(128), and $\gamma = 0.995$. Domain randomization
+randomizes the demand pattern each episode, exposing the GNN to the
+full scenario distribution during training, which promotes
+generalization across demand regimes.
+
+% -----------------------------------------------------------------
+\subsection{Residual RL (Hybrid Heuristic + RL)}\label{sec:residual}
+
+The Residual~RL agent combines the echelon base-stock heuristic with a
+learned correction via a \texttt{ResidualActionWrapper}. At each step,
+the heuristic proposes actions $a_t^{\text{heur}}$, and the RL agent
+outputs a normalized residual $\tilde{\delta}_t \in [-1, 1]$ which is
+scaled by the maximum residual $\Delta = 50$:
+\begin{equation}\label{eq:residual}
+  a_t = \max\bigl(0,\; a_t^{\text{heur}} + \Delta \cdot \tilde{\delta}_t\bigr).
+\end{equation}
+
+The policy network uses the same PPO hyperparameters as RLV1
+($\eta = 3 \times 10^{-4}$, architecture \texttt{[256,~256]}),
+but with $\gamma = 0.995$ and domain-randomized training.
+
+This hybrid approach leverages domain knowledge (the heuristic
+provides a reasonable starting policy) while allowing the RL agent to
+learn corrections for situations the heuristic handles poorly---such as
+demand shocks and goodwill dynamics. The Residual~RL paradigm is
+particularly attractive for practical deployment because:
+\begin{enumerate}
+  \item It is \emph{safe} by default: the heuristic provides a
+        reasonable fallback even if the RL correction is poor.
+  \item It requires less training data: the RL agent only needs to
+        learn residuals rather than the full policy.
+  \item It is interpretable: practitioners can inspect both the base
+        heuristic decision and the learned correction.
+\end{enumerate}
+
+\Cref{tab:agents_summary} summarizes all ten agents and their key
+characteristics.
+
+\begin{table}[htbp]
+\centering
+\caption{Summary of the ten solution methods evaluated. ``Info''
+         indicates whether the agent uses the informed or blind
+         demand estimation variant.}
+\label{tab:agents_summary}
+\small
+\begin{tabular}{llccc}
+\toprule
+\textbf{Agent} & \textbf{Paradigm} & \textbf{Info} & \textbf{Online}
+               & \textbf{Training} \\
+\midrule
+Oracle             & LP Upper Bound  & Perfect & \xmark & \xmark \\
+MSSP (Informed)    & Math.\ Prog.    & True    & \cmark & \xmark \\
+MSSP (Blind)       & Math.\ Prog.    & Estimated & \cmark & \xmark \\
+DLP (Informed)     & Math.\ Prog.    & True    & \cmark & \xmark \\
+DLP (Blind)        & Math.\ Prog.    & Estimated & \cmark & \xmark \\
+Heuristic (Inf.)   & Heuristic       & True    & \cmark & \xmark \\
+Heuristic (Blind)  & Heuristic       & Estimated & \cmark & \xmark \\
+RLV4               & RL (MLP)        & Observed & \cmark & \cmark \\
+GNN                & RL (GNN)        & Observed & \cmark & \cmark \\
+Residual RL        & Hybrid          & Observed & \cmark & \cmark \\
+\bottomrule
+\end{tabular}
+\end{table}

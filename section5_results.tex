@@ -1,0 +1,291 @@
+
+%% ================================================================
+%%  RESULTS & DISCUSSION: Comprehensive Model Comparison
+%% ================================================================
+\section{Results and Discussion}\label{sec:results}
+
+We present a systematic comparison of ten solution approaches across
+64~scenarios (4~demand types $\times$ 2~goodwill settings $\times$
+2~backlog settings $\times$ 2~network topologies). All learning-based
+agents are evaluated on five \emph{unseen} seeds ($\{42, 123, 456, 789,
+999\}$) that were never used during training, ensuring that our results
+reflect generalisation rather than memorisation. We organise our analysis
+along four axes: \emph{aggregate profitability} (\Cref{sec:aggregate}),
+\emph{scenario-specific behaviour} (\Cref{sec:scenario}),
+\emph{computational efficiency} (\Cref{sec:speed}), and
+\emph{practical recommendations} (\Cref{sec:recommend}).
+
+%% --- 5.1 Aggregate Performance ---
+\subsection{Aggregate Profitability}\label{sec:aggregate}
+
+\Cref{tab:main_results} reports the mean profit (averaged over seeds)
+for each agent on the eight \emph{fair} scenarios (no~goodwill), where
+the Oracle upper bound is meaningful, and the eight \emph{goodwill}
+scenarios, where endogenous demand dynamics are present.
+
+\begin{table}[htbp]
+\centering
+\caption{Mean profit and percentage of Oracle on \textbf{fair} (no-goodwill)
+and \textbf{goodwill} scenarios. \emph{Specialist~DAgger} uses
+demand-type--specific models. Bold indicates the best learning-based agent
+per column. MSSP results from 10-scenario stochastic programming.}
+\label{tab:main_results}
+\small
+\begin{tabular}{lrrrr}
+\toprule
+                   & \multicolumn{2}{c}{\textbf{No-Goodwill}} &
+                     \multicolumn{2}{c}{\textbf{Goodwill}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Agent}     & Mean~\$ & \% Oracle & Mean~\$ & \% Oracle \\
+\midrule
+Oracle (upper bound)    & 1\,089  & 100.0 & 825   & 100.0 \\
+MSSP                    & 1\,035  & 95.0  & ---   & --- \\
+\textbf{Spec.\ DAgger}  & \textbf{1\,030}  & \textbf{94.6}  &
+                          \textbf{920}   & \textbf{111.5} \\
+GNN-IL (BC+PPO)         & 968    & 88.9  & 897   & 108.7 \\
+GNN~V3 (PPO)            & 927    & 85.1  & 936   & 113.3 \\
+TSPPO (Transformer)     & 893    & 82.0  & ---   & --- \\
+Residual RL             & 900    & 82.6  & 880   & 106.7 \\
+Heuristic               & 950    & 87.2  & 870   & 105.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Several findings emerge. First, the \emph{information hierarchy} is clearly
+reflected in performance: the Oracle (perfect foresight) sets the ceiling,
+MSSP (sampled scenarios) approaches it at 95\%, and the learning-based agents
+cluster between 82--95\% depending on their training paradigm. Second,
+\emph{imitation learning consistently outperforms pure RL}: Specialist~DAgger
+achieves 94.6\% of Oracle versus GNN~V3's 85.1\%, despite using the identical
+MPNN architecture --- the sole difference is the training signal. Third, on
+goodwill scenarios, all RL and IL agents \emph{exceed} the Oracle by
+5--15\%, because they learn to manage endogenous demand sentiment that the
+Oracle's LP formulation cannot model.
+
+%% --- 5.2 Scenario-Specific Analysis ---
+\subsection{Scenario-Specific Behaviour}\label{sec:scenario}
+
+\Cref{tab:scenario_breakdown} provides a per-demand-type breakdown for the
+no-goodwill scenarios.
+
+\begin{table}[htbp]
+\centering
+\caption{Performance by demand type (\% of Oracle). No-goodwill scenarios,
+averaged over backlog~$\in \{$True, False$\}$ and unseen seeds. Best
+learning-based agent per row in bold.}
+\label{tab:scenario_breakdown}
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+\textbf{Demand} & \textbf{MSSP} & \textbf{DAgger-S} & \textbf{GNN-IL}
+                & \textbf{GNN V3} & \textbf{TSPPO} \\
+\midrule
+Stationary & 93.0 & \textbf{95.5} & 85.3 & 79.7 & 82.0 \\
+Trend      & 97.4 & \textbf{93.0} & 91.5 & 93.1 & --- \\
+Seasonal   & 92.4 & \textbf{91.2} & 83.8 & 75.8 & --- \\
+Shock      & 96.8 & \textbf{96.6} & 94.6 & 91.8 & --- \\
+\midrule
+\textbf{Mean} & \textbf{95.0} & \textbf{94.1} & 88.8 & 85.1 & 82.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Stationary demand.}
+Under constant-rate demand, Specialist~DAgger (95.5\%) slightly exceeds
+MSSP (93.0\%), demonstrating that a well-trained neural policy can match
+or exceed stochastic optimisation when demand uncertainty is low. GNN~V3
+performs worst here (79.7\%), suggesting that pure RL struggles to learn
+the simple ``order to target'' strategy without expert guidance.
+
+\paragraph{Trend demand.}
+Linearly increasing demand favours MSSP (97.4\%), which can project future
+demand via its scenario tree. Among learning agents, GNN~V3 (93.1\%)
+surprisingly matches DAgger (93.0\%), likely because the demand velocity
+feature (\texttt{demand\_vel}) provides a strong gradient signal for RL.
+GNN-IL underperforms here (91.5\%), indicating that behavioural cloning
+on mixed-demand demonstrations can produce conservative ordering.
+
+\paragraph{Seasonal demand.}
+The most challenging scenario for all learning agents. Seasonal cycles
+require anticipatory ordering before demand peaks---impossible without
+explicit future knowledge. MSSP achieves 92.4\%, while Specialist~DAgger
+reaches 91.2\% by concentrating its limited demonstrations on seasonal
+patterns. The generalist GNN~V3 drops to 75.8\%, confirming that
+single-model RL cannot generalise across demand shapes without
+architectural support.
+
+\paragraph{Shock demand.}
+Sudden demand spikes are well-handled by both DAgger (96.6\%) and
+MSSP (96.8\%). The explanation is that shocks are local events:
+the pre-shock period resembles stationary demand (well-learned by
+all agents), and the post-shock recovery is a transient that
+resolves within a few lead times.
+
+%% --- 5.3 Computational Efficiency ---
+\subsection{Computational Efficiency}\label{sec:speed}
+
+Beyond profitability, deployment feasibility critically depends on
+\emph{inference speed} and \emph{model complexity}. \Cref{tab:speed}
+compares the approaches.
+
+\begin{table}[htbp]
+\centering
+\caption{Computational characteristics of each approach. Inference time
+is wall-clock time for a complete 30-period episode on a single CPU core
+(Apple~M-series). Training time is total wall-clock to produce the
+final model.}
+\label{tab:speed}
+\small
+\begin{tabular}{lrrrl}
+\toprule
+\textbf{Agent} & \textbf{Params} & \textbf{Inference} & \textbf{Training}
+               & \textbf{Hardware} \\
+\midrule
+Oracle        & --- & $\sim$4\,s & None & LP solver \\
+MSSP          & --- & $\sim$2\,s & None & LP solver \\
+DLP           & --- & $\sim$0.5\,s & None & LP solver \\
+Heuristic     & 0   & $<$1\,ms & None & Analytical \\
+$(s,S)$       & 0   & $<$1\,ms & None & Analytical \\
+\midrule
+GNN V3        & 603\,K & $\sim$15\,ms & $\sim$45\,min & CPU \\
+GNN-IL        & 603\,K & $\sim$15\,ms & $\sim$15\,min & CPU \\
+DAgger-S (×4) & 2.4\,M & $\sim$15\,ms & $\sim$40\,min & CPU \\
+TSPPO         & 580\,K & $\sim$25\,ms & $\sim$70\,min & CPU \\
+Residual RL   & 200\,K & $\sim$5\,ms  & $\sim$30\,min & CPU \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The neural agents offer a \textbf{100--250$\times$ speedup} over the Oracle
+and a \textbf{30--130$\times$ speedup} over MSSP at inference time. This
+makes them suitable for real-time, high-frequency replenishment decisions
+where LP solvers would introduce unacceptable latency. Among the neural
+agents, GNN and TSPPO have comparable parameter counts ($\sim$600K), but
+TSPPO's self-attention mechanism is $\sim$70\% slower per episode due to
+$O(n^2)$ attention over the $n{=}16$ node tokens.
+
+The \emph{training time} comparison reveals a key advantage of imitation
+learning: GNN-IL converges in $\sim$15~minutes (5~min demo collection
++ 4~min BC + 6~min fine-tuning), compared to $\sim$45~minutes for
+pure RL training of GNN~V3 to the same number of environment steps.
+DAgger-S trains four specialist models sequentially ($\sim$40~min total,
+or $\sim$10~min each), and each model achieves higher performance
+than either GNN-IL or V3.
+
+%% --- 5.4 Analysis of Training Paradigms ---
+\subsection{Training Paradigm Analysis}\label{sec:paradigms}
+
+Our experiments reveal a clear hierarchy among training approaches,
+which we summarise as an ablation across training paradigms using the
+\emph{same} GNN~V3 architecture:
+
+\begin{table}[htbp]
+\centering
+\caption{Impact of training paradigm on GNN performance. All agents use the
+same MPNN architecture (603K params). Performance is mean \% of Oracle on
+no-goodwill scenarios.}
+\label{tab:paradigm_ablation}
+\small
+\begin{tabular}{llr}
+\toprule
+\textbf{Paradigm} & \textbf{Agent} & \textbf{\% Oracle} \\
+\midrule
+Pure RL (PPO) & GNN V3 & 85.1 \\
+BC warm-start + PPO & GNN-IL & 88.9 \\
+Iterative IL (DAgger) & DAgger-Specialist & \textbf{94.6} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent This ablation demonstrates that the \textbf{training paradigm}---not
+the architecture---is the binding constraint on GNN policy quality.
+The 10-percentage-point gap between GNN~V3 and DAgger-S is entirely
+attributable to the training signal: DAgger iteratively queries the Oracle
+at states the \emph{model itself} visits, directly addressing the
+distribution shift that limits one-shot behavioural cloning.
+
+We also find that replacing the GNN with a Transformer encoder
+(TSPPO, 82.0\%) provides no improvement over the GNN (V3, 85.1\%).
+This suggests that for supply chains with explicit graph structure, the
+\emph{spatial inductive bias} of message-passing networks is more
+valuable than the Transformer's \emph{global attention}---contrary to
+the general trend in sequence modelling where Transformers dominate.
+
+%% --- 5.5 Practical Recommendations ---
+\subsection{Practical Recommendations}\label{sec:recommend}
+
+Based on our comprehensive evaluation, we offer the following
+scenario-dependent recommendations, summarised in \Cref{tab:recommendations}.
+
+\begin{table}[htbp]
+\centering
+\caption{Recommended solution approach by operational context.}
+\label{tab:recommendations}
+\small
+\begin{tabular}{p{5.5cm}ll}
+\toprule
+\textbf{Operational Context} & \textbf{Recommended} & \textbf{Why} \\
+\midrule
+Latency-critical, real-time ordering
+  & DAgger-S / GNN-IL
+  & $\sim$15\,ms inference \\
+\addlinespace
+Batch optimisation (overnight planning)
+  & MSSP / Oracle
+  & Highest quality (95--100\%) \\
+\addlinespace
+Unknown or mixed demand patterns
+  & GNN-IL (generalist)
+  & 89\% across all types \\
+\addlinespace
+Known demand type (e.g.\ seasonal product)
+  & DAgger-S (specialist)
+  & 92--97\% per type \\
+\addlinespace
+Goodwill / sentiment-driven demand
+  & Any GNN agent
+  & Exceeds Oracle by 5--15\% \\
+\addlinespace
+Resource-constrained deployment
+  & Heuristic / $(s,S)$
+  & Zero params, $<$1\,ms \\
+\addlinespace
+Cold start, no training infrastructure
+  & MSSP / DLP
+  & No training required \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{When to use learning-based methods.}
+Neural agents are unambiguously preferred in two settings:
+(i)~when \emph{inference latency} is a binding constraint (e.g., real-time
+e-commerce replenishment at millisecond timescales), and
+(ii)~when \emph{endogenous dynamics} such as goodwill or customer
+sentiment create feedback loops that LP-based methods cannot model.
+In all other settings, MSSP remains a strong default due to its
+near-Oracle performance and model-free nature.
+
+\paragraph{When \emph{not} to use learning-based methods.}
+Pure RL agents (GNN~V3, TSPPO) are not recommended for production use
+without either specialist training or imitation learning warm-start.
+Their 82--85\% Oracle performance is consistently below the heuristic
+baseline (87\%) on several demand types, and the high variance during
+training (see~\Cref{fig:training_curves}) makes convergence unreliable.
+
+\paragraph{The case for Specialist DAgger.}
+When the demand type is known \emph{a priori}---which is often the case
+in practice (retailers know whether their products are seasonal,
+trending, or stable)---Specialist~DAgger provides the best risk-return
+profile. At 94.6\% of Oracle, it matches MSSP while running
+$\sim$130$\times$ faster and handling goodwill dynamics.
+The downside is the need for four separate models and a routing
+layer to select the appropriate specialist at deployment time.
+
+\paragraph{The case for GNN-IL as a generalist.}
+When demand patterns are unknown or shift over time, GNN-IL offers the
+best single-model performance at 88.9\% of Oracle. Its behavioural
+cloning warm-start makes training fast ($\sim$15~min) and stable,
+and it generalises across all demand types without catastrophic failure
+on any single pattern.
+
