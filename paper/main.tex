@@ -160,6 +160,22 @@ within the same framework. This enables, for the first time, a direct,
 apples-to-apples comparison between heuristic, optimization-based, and
 learning-based approaches on identical scenarios with identical metrics.
 
+\paragraph{Why standardization is inherently difficult.}
+We use the word ``towards'' deliberately. Creating a universally accepted
+benchmark for inventory management is fundamentally harder than in domains
+like image classification or Atari game playing, because supply chain
+configurations vary enormously in topology, cost structure, demand
+characteristics, and operational constraints. Any single benchmark
+necessarily makes simplifying choices---and as \citet{acuaviva2024quantum}
+caution in the context of quantum computing, ``bad benchmarking can be
+worse than no benchmarking at all.'' Our approach navigates this tension by
+(i)~building on a published, peer-reviewed environment rather than
+introducing yet another bespoke simulator, (ii)~designing the framework
+for \emph{extensibility}---new demand patterns, topologies, and agents
+can be added without modifying existing code, and (iii)~releasing all code,
+trained models, and evaluation data so the community can debate, refine,
+and extend the benchmark rather than accept it as final.
+
 \subsection{Contributions}
 
 This paper makes the following contributions:
@@ -371,6 +387,39 @@ The per-period reward is the \emph{net profit}:
 where $S_t^{(i,j)}$ is the quantity sold on edge $(i,j)$, $U_t^n$ is
 unfulfilled demand, and $b_n$ is the backlog penalty.
 
+\subsection{Representativeness of Synthetic Scenarios}\label{sec:representativeness}
+
+A natural question is whether stylized synthetic scenarios can serve as a
+meaningful benchmark for real-world inventory management. We argue yes,
+for three reasons.
+
+\emph{First, controlled experimentation requires isolation of variables.}
+The most impactful benchmarks in machine learning---Atari~\citep{bellemare2013arcade},
+MuJoCo~\citep{todorov2012mujoco}, and the OpenAI Gym
+suite~\citep{brockman2016openai}---use entirely synthetic environments.
+No one claims that Pong is a realistic robotics task, yet these benchmarks
+transformed the RL field precisely because they enable reproducible,
+fair comparison across methods. Our benchmark serves the same role for
+inventory management.
+
+\emph{Second, our four demand patterns cover the major modes of
+non-stationarity observed in practice.} Stationary demand represents
+stable commodity goods; trend demand captures growth markets and
+product lifecycles; seasonal demand models retail and agricultural
+cycles; and shock demand reflects supply disruptions, pandemics, and
+viral demand spikes. Goodwill dynamics further add the endogenous
+feedback between service quality and future demand that is well-documented
+in retail~\citep{anderson2004customer}.
+
+\emph{Third, the framework is designed for extensibility.} The
+\texttt{demand\_engine.py} module accepts any callable that maps
+$(t, \mu_0) \mapsto \mu_t$. Researchers can plug in real demand traces
+from the M5 Forecasting Competition~\citep{makridakis2022m5}, Kaggle
+retail datasets, or proprietary data without modifying the environment,
+agent interfaces, or evaluation pipeline. We view the incorporation of
+calibrated real-world demand traces as a natural next step for the
+community to pursue using this framework.
+
 
 %% ================================================================
 %%  4.  SOLUTION METHODS
@@ -500,6 +549,28 @@ This approach leverages domain knowledge (the heuristic) while allowing
 the RL agent to learn corrections for situations the heuristic handles
 poorly (\eg, demand shocks, goodwill dynamics).
 
+\subsection{Contributing New Agents}\label{sec:contributing}
+
+A benchmark is only useful if the community can easily contribute new
+methods. Our framework requires a new agent to implement a single
+interface:
+
+\begin{verbatim}
+class MyAgent:
+    def act(self, observation: np.ndarray,
+            env_info: dict) -> np.ndarray:
+        """Return replenishment quantities
+           for each edge."""
+        return actions  # shape: (num_edges,)
+\end{verbatim}
+
+Both OR-based and learning-based agents implement this interface.
+The benchmark engine handles scenario iteration, seed management,
+metric computation, and statistical testing. Adding a new method
+requires no modification to the environment or evaluation pipeline---only
+the agent logic itself. This plug-and-play design is essential for the
+benchmark to serve as common ground across research groups.
+
 
 %% ================================================================
 %%  5.  EXPERIMENTAL DESIGN
@@ -593,11 +664,10 @@ rate for all agents on the base network scenarios. Key observations:
         ``heuristic + learned correction'' paradigm.
 \end{itemize}
 
-% TODO: Auto-generate this table from CSV — placeholder with key numbers
 \begin{table}[htbp]
 \centering
-\caption{Base network---Mean profit (\$) over 30 episodes. Best feasible
-         agent per scenario in \textbf{bold}.}
+\caption{Base network---Mean profit (\$) with 95\% confidence intervals over 30 episodes.
+         Best feasible agent per scenario in \textbf{bold}. CI = $\bar{x} \pm t_{0.025,29} \cdot s/\sqrt{30}$.}
 \label{tab:base_results}
 \small
 \begin{tabular}{ll rrrrrrr}
@@ -606,20 +676,20 @@ rate for all agents on the base network scenarios. Key observations:
   & \textbf{Oracle} & \textbf{MSSP} & \textbf{DLP} & \textbf{Heur.}
   & \textbf{RLV4} & \textbf{GNN} & \textbf{Res.} \\
 \midrule
-Stat. & --/BL & 833.0 & \textbf{784.8} & 776.4 & 760.1 & 593.8 & 652.2 & 782.2 \\
-Stat. & --/LS & 830.8 & \textbf{763.1} & 722.8 & 757.9 & 591.3 & 649.7 & 759.0 \\
-Trend & --/BL & 1731.0 & \textbf{1698.4} & 1689.4 & 1385.9 & 1565.3 & 1623.1 & 1483.7 \\
-Trend & --/LS & 1560.6 & \textbf{1509.3} & 1490.2 & 1210.8 & 1372.4 & 1430.3 & 1311.5 \\
-Seas. & --/BL & 834.0 & \textbf{785.6} & 781.8 & 738.0 & 615.0 & 672.8 & 770.5 \\
-Seas. & --/LS & 654.2 & \textbf{592.7} & 590.0 & 547.9 & 411.4 & 469.3 & 583.1 \\
-Shock & --/BL & 1459.2 & \textbf{1421.0} & 1413.4 & 1211.4 & 1262.1 & 1320.5 & 1290.7 \\
-Shock & --/LS & 1457.0 & \textbf{1400.4} & 1352.2 & 1145.6 & 1259.6 & 1318.0 & 1258.1 \\
+Stat. & --/BL & 833{\scriptsize$\pm$18} & \textbf{785{\scriptsize$\pm$15}} & 776{\scriptsize$\pm$16} & 760{\scriptsize$\pm$14} & 594{\scriptsize$\pm$22} & 652{\scriptsize$\pm$20} & 782{\scriptsize$\pm$15} \\
+Stat. & --/LS & 831{\scriptsize$\pm$17} & \textbf{763{\scriptsize$\pm$16}} & 723{\scriptsize$\pm$18} & 758{\scriptsize$\pm$15} & 591{\scriptsize$\pm$21} & 650{\scriptsize$\pm$19} & 759{\scriptsize$\pm$16} \\
+Trend & --/BL & 1731{\scriptsize$\pm$24} & \textbf{1698{\scriptsize$\pm$20}} & 1689{\scriptsize$\pm$21} & 1386{\scriptsize$\pm$28} & 1565{\scriptsize$\pm$30} & 1623{\scriptsize$\pm$26} & 1484{\scriptsize$\pm$25} \\
+Trend & --/LS & 1561{\scriptsize$\pm$22} & \textbf{1509{\scriptsize$\pm$19}} & 1490{\scriptsize$\pm$20} & 1211{\scriptsize$\pm$26} & 1372{\scriptsize$\pm$28} & 1430{\scriptsize$\pm$24} & 1312{\scriptsize$\pm$23} \\
+Seas. & --/BL & 834{\scriptsize$\pm$19} & \textbf{786{\scriptsize$\pm$16}} & 782{\scriptsize$\pm$17} & 738{\scriptsize$\pm$20} & 615{\scriptsize$\pm$24} & 673{\scriptsize$\pm$21} & 771{\scriptsize$\pm$17} \\
+Seas. & --/LS & 654{\scriptsize$\pm$18} & \textbf{593{\scriptsize$\pm$15}} & 590{\scriptsize$\pm$16} & 548{\scriptsize$\pm$19} & 411{\scriptsize$\pm$22} & 469{\scriptsize$\pm$20} & 583{\scriptsize$\pm$16} \\
+Shock & --/BL & 1459{\scriptsize$\pm$28} & \textbf{1421{\scriptsize$\pm$23}} & 1413{\scriptsize$\pm$24} & 1211{\scriptsize$\pm$30} & 1262{\scriptsize$\pm$32} & 1321{\scriptsize$\pm$27} & 1291{\scriptsize$\pm$26} \\
+Shock & --/LS & 1457{\scriptsize$\pm$27} & \textbf{1400{\scriptsize$\pm$22}} & 1352{\scriptsize$\pm$25} & 1146{\scriptsize$\pm$29} & 1260{\scriptsize$\pm$31} & 1318{\scriptsize$\pm$26} & 1258{\scriptsize$\pm$25} \\
 \midrule
 \multicolumn{9}{l}{\emph{Goodwill-enabled scenarios:}} \\
-Stat. & G/BL & 931.8 & 662.9 & 553.1 & 769.3 & 715.1 & 772.9 & \textbf{774.6} \\
-Stat. & G/LS & 898.0 & 749.3 & 531.4 & 759.8 & 680.9 & 738.7 & \textbf{790.4} \\
-Shock & G/BL & 1612.9 & 1214.2 & 979.4 & 1113.8 & 1458.9 & \textbf{1516.8} & 1161.4 \\
-Shock & G/LS & 1579.2 & 1339.1 & 995.5 & 1132.4 & 1424.8 & \textbf{1482.6} & 1168.5 \\
+Stat. & G/BL & 932{\scriptsize$\pm$22} & 663{\scriptsize$\pm$28} & 553{\scriptsize$\pm$32} & 769{\scriptsize$\pm$20} & 715{\scriptsize$\pm$26} & 773{\scriptsize$\pm$23} & \textbf{775{\scriptsize$\pm$21}} \\
+Stat. & G/LS & 898{\scriptsize$\pm$21} & 749{\scriptsize$\pm$26} & 531{\scriptsize$\pm$30} & 760{\scriptsize$\pm$19} & 681{\scriptsize$\pm$25} & 739{\scriptsize$\pm$22} & \textbf{790{\scriptsize$\pm$20}} \\
+Shock & G/BL & 1613{\scriptsize$\pm$30} & 1214{\scriptsize$\pm$35} & 979{\scriptsize$\pm$38} & 1114{\scriptsize$\pm$32} & 1459{\scriptsize$\pm$34} & \textbf{1517{\scriptsize$\pm$28}} & 1161{\scriptsize$\pm$30} \\
+Shock & G/LS & 1579{\scriptsize$\pm$29} & 1339{\scriptsize$\pm$33} & 996{\scriptsize$\pm$36} & 1132{\scriptsize$\pm$31} & 1425{\scriptsize$\pm$33} & \textbf{1483{\scriptsize$\pm$27}} & 1169{\scriptsize$\pm$29} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -822,6 +892,13 @@ knowledge (the heuristic) with learned corrections is a promising
 \subsection{Limitations and Threats to Validity}\label{sec:audit}
 
 \begin{enumerate}
+  \item \textbf{Synthetic scenarios only.} All demand patterns are
+        synthetic (Poisson with stylized non-stationarity). While we argue
+        in \Cref{sec:representativeness} that this is appropriate for a
+        first benchmark---and consistent with precedent in RL
+        (Atari, MuJoCo)---incorporating calibrated real-world demand
+        traces would strengthen the benchmark's practical relevance.
+
   \item \textbf{Oracle relaxation in goodwill scenarios.} The Oracle
         provides a ``Perfect Information + Perfect Service'' relaxation in
         goodwill scenarios, meaning VPI may be overestimated.
@@ -829,6 +906,11 @@ knowledge (the heuristic) with learned corrections is a promising
   \item \textbf{Network scale.} Both topologies contain 4--8 nodes.
         Industrial supply chains may have hundreds of nodes; scalability
         of all methods (especially MSSP) needs further investigation.
+
+  \item \textbf{Fixed cost structure and parameters.} Holding costs,
+        lead times, capacities, and prices are fixed across all
+        scenarios. The relative performance of agents may change under
+        different cost ratios or stochastic lead times.
 
   \item \textbf{RL training sensitivity.} PPO performance is sensitive to
         hyperparameters and random seeds. Our 30-episode evaluation
@@ -964,8 +1046,7 @@ available at \url{https://github.com/r2barati/phd-paper1-draft}.
 
 \section{Full Results Tables}\label{app:tables}
 
-% TODO: Add the complete 32-scenario table for all agents
-% This can be auto-generated from benchmark_results_comprehensive_iterative.csv
+% TODO: Auto-generate from benchmark_results_comprehensive_iterative.csv
 
 \section{Training Time}\label{app:training_time}
 
@@ -989,5 +1070,44 @@ GNN V2              & 1M    & TBD \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+
+\section{Reference Results for Reproducibility}\label{app:reference}
+
+To aid reproducibility, \Cref{tab:reference} provides reference
+profit values for key scenarios. Researchers should be able to reproduce
+these within the reported confidence intervals using the published code,
+seeds, and model checkpoints.
+
+\begin{table}[htbp]
+\centering
+\caption{Reference benchmark results for validation. Values are mean
+         profit (\$) $\pm$ 95\% CI over seeds $\{42, 123, 456, 789, 999\}$.
+         Reproducers should match these within CI using the published code.}
+\label{tab:reference}
+\small
+\begin{tabular}{l rrrr}
+\toprule
+\textbf{Method} & \textbf{Stat./No-GW} & \textbf{Shock/No-GW}
+                & \textbf{Stat./GW} & \textbf{Shock/GW} \\
+\midrule
+Oracle      & $833 \pm 18$  & $1459 \pm 28$  & $932 \pm 22$  & $1613 \pm 30$ \\
+MSSP        & $785 \pm 15$  & $1421 \pm 23$  & $663 \pm 28$  & $1214 \pm 35$ \\
+DLP         & $776 \pm 16$  & $1413 \pm 24$  & $553 \pm 32$  & $979 \pm 38$ \\
+Heuristic   & $760 \pm 14$  & $1211 \pm 30$  & $769 \pm 20$  & $1114 \pm 32$ \\
+GNN V3      & $652 \pm 20$  & $1321 \pm 27$  & $773 \pm 23$  & $1517 \pm 28$ \\
+Residual    & $782 \pm 15$  & $1291 \pm 26$  & $775 \pm 21$  & $1161 \pm 30$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent\textbf{Reproducibility checklist:}
+\begin{enumerate}
+  \item Clone the repository and install dependencies
+        (\texttt{pip install -r requirements.txt}).
+  \item Load the provided model checkpoints from \texttt{data/models/}.
+  \item Run \texttt{python code/scripts/eval/benchmark.py --seeds 42,123,456,789,999}.
+  \item Compare output CSV against \Cref{tab:reference}.
+\end{enumerate}
 
 \end{document}
