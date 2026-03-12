@@ -194,6 +194,11 @@ This paper makes the following contributions:
         and learning-based methods (PPO-MLP, PPO-GNN, Residual~RL)
         as first-class agents within the same framework, enabling fair
         comparison of \textbf{ten solution methods} from four paradigms.
+        In the terminology of \citet{bergsma2025systematic}, our
+        benchmark is the first to compare agents spanning \emph{all three}
+        ML-integration categories: separate estimation and optimization
+        (A1, the heuristic), static ML-integrated optimization (A2,
+        DLP/MSSP), and dynamic ML-integrated optimization (A3, PPO/GNN).
 
   \item \textbf{A systematic evaluation protocol.} We define a
         32-scenario matrix varying topology, demand pattern, information
@@ -287,6 +292,12 @@ metrics, making cross-study comparison infeasible.
 the choice of demand uncertainty model can dramatically alter inventory
 performance rankings---underscoring why a controlled benchmark is
 essential.
+A recent systematic review of 122~ML-for-inventory-control
+papers~\citep{bergsma2025systematic} explicitly identifies the lack of
+``standardized environments'' and ``like-for-like comparisons across
+algorithms/policies'' as a key research gap (see their Table~15), and
+notes that across the entire RL sub-literature (51~papers), only a
+single study reports an actual industrial implementation.
 Our work builds
 directly upon OR-Gym to address this gap---extending the environment with
 non-stationary demand and endogenous dynamics, and implementing classical
@@ -526,7 +537,12 @@ worst-case reference. Its performance quantifies the ``cost of inaction.''
 \subsection{PPO Baseline (MLP)}
 
 We train a Proximal Policy Optimization~(PPO)~\citep{schulman2017proximal}
-agent using \texttt{stable-baselines3}~\citep{raffin2021stable}. The
+agent using \texttt{stable-baselines3}~\citep{raffin2021stable}.
+PPO has emerged as the dominant RL algorithm for inventory control
+in recent years, surpassing Q-learning in new
+publications~\citep{bergsma2025systematic}, owing to its stability
+and native support for continuous action spaces---both critical
+for inventory problems with wide ordering ranges. The
 policy and value networks are multi-layer perceptrons (MLPs) with two
 hidden layers of 256~units each. The observation is the raw environment
 state vector, and actions are continuous (Gaussian policy).
@@ -1005,6 +1021,12 @@ knowledge (the heuristic) with learned corrections is a promising
         divergence, distributor over-fulfillment, fill-rate computation,
         cost-model inconsistency) were identified and resolved prior to
         the benchmark runs reported here.
+
+  \item \textbf{Open-source release.} We release all code, trained models,
+        evaluation data, and benchmark scripts. Recent surveys note
+        that the majority of ML-for-inventory papers do not share
+        code~\citep{bergsma2025systematic}, hindering reproducibility.
+        Our full release directly addresses this gap.
 \end{enumerate}
 
 
