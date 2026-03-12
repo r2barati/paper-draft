@@ -18,7 +18,11 @@ jobs:
         uses: xu-cheng/latex-action@v3
         with:
           root_file: main.tex
-          latexmk_use_xelatex: false
+          extra_system_packages: "py-pygments"
+          latexmk_shell_escape: true
+          pre_compile: |
+            tlmgr update --self
+            tlmgr install elsarticle amscls amsmath amsfonts booktabs graphicx multirow xcolor algorithms algorithmicx hyperref cleveref subcaption siunitx tabularx rotating psnfss
 
       - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
